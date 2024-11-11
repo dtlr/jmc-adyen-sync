@@ -5,6 +5,13 @@ export type AdyenTerminalsResponse = {
   data: TerminalData[]
 }
 
+export type AdyenStoresResponse = {
+  _links: Links
+  itemsTotal: number
+  pagesTotal: number
+  data: StoreData[]
+}
+
 interface Links {
   first: {
     href: string
@@ -18,6 +25,27 @@ interface Links {
   self: {
     href: string
   }
+}
+
+export interface StoreData {
+  id: string
+  description: string
+  reference: string
+  status: string
+  merchantId: string
+  phoneNumber: string
+  address: Address
+  _links: Pick<Links, 'self'>
+}
+
+export interface Address {
+  line1: string
+  line2: string
+  line3: string
+  city: string
+  postalCode: string
+  stateOrProvince: string
+  country: string
 }
 
 export interface TerminalData {
