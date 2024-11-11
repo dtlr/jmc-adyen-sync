@@ -14,10 +14,14 @@ const connectionString =
 
 const db = drizzle({ connection: connectionString, casing: 'snake_case' })
 
-export async function fetchApiData(): Promise<AdyenTerminalsResponse[]> {
+export const fetchAdyenData = async ({
+  type = 'stores',
+}: {
+  type?: 'stores' | 'terminals'
+} = {}) => {
   try {
-    const response = await axios.get<AdyenTerminalsResponse[]>(
-      `https://${process.env.ADYEN_ENDPOINT}/v3/terminals`,
+    const response = await axios.get(
+      `https://${process.env.ADYEN_ENDPOINT}${type === 'stores' ? '/v3/stores' : '/v3/terminals'}`,
       {
         headers: {
           'Content-Type': 'application/json',
@@ -25,7 +29,9 @@ export async function fetchApiData(): Promise<AdyenTerminalsResponse[]> {
         },
       },
     )
-    return response.data
+    return type === 'stores'
+      ? response.data
+      : (response.data as AdyenTerminalsResponse[])
   } catch (error) {
     console.error('Error fetching API data:', error)
     throw error
@@ -72,7 +78,10 @@ export async function fetchApiData(): Promise<AdyenTerminalsResponse[]> {
 
 async function main() {
   try {
-    const data = await fetchApiData()
+    const stores = await fetchAdyenData()
+    const terminals = await fetchAdyenData({ type: 'terminals' })
+    console.log(stores)
+    console.log(terminals)
     console.log('Cron job completed successfully')
   } catch (error) {
     console.error('Cron job failed:', error)

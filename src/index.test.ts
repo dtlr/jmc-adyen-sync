@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import axios from 'axios'
-import { fetchApiData } from './index'
+import { fetchAdyenData } from './index'
 import { drizzle } from 'drizzle-orm/node-postgres'
 
 vi.mock('axios')
@@ -17,7 +17,7 @@ describe('API and Database Operations', () => {
     vi.clearAllMocks()
   })
 
-  describe('fetchApiData', () => {
+  describe('fetchAdyenData', () => {
     it('should successfully fetch data from API', async () => {
       const mockData = [
         { id: 1, name: 'Test 1', value: 'Value 1' },
@@ -26,7 +26,7 @@ describe('API and Database Operations', () => {
 
       vi.mocked(axios.get).mockResolvedValueOnce({ data: mockData })
 
-      const result = await fetchApiData()
+      const result = await fetchAdyenData()
       
       expect(result).toEqual(mockData)
       expect(axios.get).toHaveBeenCalledWith(process.env.API_URL)
@@ -35,7 +35,7 @@ describe('API and Database Operations', () => {
     it('should handle API errors', async () => {
       vi.mocked(axios.get).mockRejectedValueOnce(new Error('API Error'))
 
-      await expect(fetchApiData()).rejects.toThrow('API Error')
+      await expect(fetchAdyenData()).rejects.toThrow('API Error')
     })
   })
 
