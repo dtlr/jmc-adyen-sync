@@ -2,7 +2,7 @@
   "extends": ["@nwlnexus/config/typescript"],
   "compilerOptions": {
     "strict": true,
-    "composite": true,
+    "incremental": false,
     "baseUrl": "./",
     "skipLibCheck": true,
     "isolatedModules": true,

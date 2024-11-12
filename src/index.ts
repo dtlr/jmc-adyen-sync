@@ -3,7 +3,11 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import dotenv from 'dotenv'
 import { AdyenStoresResponse, AdyenTerminalsResponse, StoreData, TerminalData } from './types.js'
 import url from 'node:url'
-import { devDevicePersonalization } from './db/schema.js'
+import {
+  devDevicePersonalization,
+  payAssignedPaymentDevice,
+  payPaymentDevices,
+} from './db/schema.js'
 import { eq } from 'drizzle-orm'
 // Load environment variables
 dotenv.config()
@@ -71,54 +75,104 @@ export const fetchAdyenData = async ({
 export const updateDatabase = async (data: [string, string, string][]) => {
   const dbEnv = process.env.DB_NAME?.split('-')[1]
   try {
-    // Using a transaction
-    await db.transaction(async (tx) => {
-      for (const item of data) {
-        // Check if record exists
-        const existing = await tx
+    let existingWorkstationIds: string[] = []
+    for (const item of data) {
+      console.log('Processing:', item)
+      // Gather existing workstations for the business unit
+      const dbExistingWorkstations = await db
+        .select({ deviceId: devDevicePersonalization.deviceId })
+        .from(devDevicePersonalization)
+        .where(eq(devDevicePersonalization.businessUnitId, item[2]))
+      console.log('Found workstations:', dbExistingWorkstations)
+      if (dbExistingWorkstations.length > 0)
+        existingWorkstationIds = dbExistingWorkstations.map(
+          (workstation) => workstation.deviceId?.split('-')[1]!,
+        )
+      console.log('Existing workstation ids:', existingWorkstationIds)
+      // Using a transaction
+      await db.transaction(async (tx) => {
+        // Check if record exists in dev_device_personalization table by serial
+        const existingDDP = await tx
           .select()
           .from(devDevicePersonalization)
           .where(eq(devDevicePersonalization.deviceName, item[0]))
           .limit(1)
-        const dbExistingWorkstations = await tx
-          .select({ deviceId: devDevicePersonalization.deviceId })
-          .from(devDevicePersonalization)
-          .where(eq(devDevicePersonalization.businessUnitId, item[2]))
-        const existingWorkstationIds = dbExistingWorkstations.map(
-          (workstation) => workstation.deviceId?.split('-')[1],
-        )
-        if (existing.length > 0) {
-          // Update
+        if (existingDDP.length > 0) {
+          console.log('Existing record found for:', item[0])
+          // Update dev_device_personalization
           await tx
             .update(devDevicePersonalization)
             .set({
               serverUrl: `https://${item[1].charAt(0).toLowerCase()}m${dbEnv?.charAt(0).toLowerCase()}.jdna.io`,
               appId: 'pos',
-              deviceId: item[2] + '-' + existing[0]!.deviceId?.split('-')[1]!.padStart(3, '0'),
+              deviceId: item[2] + '-' + existingDDP[0]!.deviceId?.split('-')[1]!.padStart(3, '0'),
               businessUnitId: item[2],
               tagBusinessUnitId: item[2],
             })
             .where(eq(devDevicePersonalization.deviceName, item[0]))
+          console.log('dev_device_personalization tables updated')
+          // Update pay_payment_devices
+          await tx
+            .update(payPaymentDevices)
+            .set({
+              businessUnitId: item[2],
+              displayName: `Terminal ${item[2] + '-' + existingDDP[0]!.deviceId?.split('-')[1]!.padStart(3, '0')}`,
+            })
+            .where(eq(payPaymentDevices.terminalId, item[0]))
+          console.log('pay_payment_devices tables updated')
+          // Update pay_assigned_payment_device
+          await tx
+            .update(payAssignedPaymentDevice)
+            .set({
+              businessUnitId: item[2],
+              permanentFlag: 1,
+            })
+            .where(
+              eq(
+                payAssignedPaymentDevice.deviceId,
+                item[2] + '-' + existingDDP[0]!.deviceId?.split('-')[1]!.padStart(3, '0'),
+              ),
+            )
+          console.log('pay_assigned_payment_device tables updated')
         } else {
-
-          const newWorkstationId = findDifference(
-            posWrkIds,
-            existingWorkstationIds.filter(Boolean) as string[],
-          )[0]?.padStart(3, '0')
+          console.log('Existing record not found for:', item[0])
+          const availableWorkstationIds = findDifference(
+            posWrkIds.map((i) => i.padStart(3, '0')),
+            existingWorkstationIds,
+          )
+          console.log('Available workstation ids:', availableWorkstationIds)
+          const newWorkstationId = availableWorkstationIds[0]?.padStart(3, '0')
           if (!newWorkstationId) throw new Error('No new workstation ID found')
-          // Insert
+          const deviceId = `${item[2]}-${newWorkstationId}`
+          console.log('New computed device id:', deviceId)
+          // Insert dev_device_personalization
           await tx.insert(devDevicePersonalization).values({
             deviceName: item[0],
-            serverUrl:`https://${item[1].charAt(0).toLowerCase()}m${dbEnv?.charAt(0).toLowerCase()}.jdna.io`,
-            deviceId: `${item[2]}-${newWorkstationId}`,
+            serverUrl: `https://${item[1].charAt(0).toLowerCase()}m${dbEnv?.charAt(0).toLowerCase()}.jdna.io`,
+            deviceId,
             appId: 'pos',
             businessUnitId: item[2],
             tagBusinessUnitId: item[2],
           })
+          // Insert pay_payment_devices
+          await tx.insert(payPaymentDevices).values({
+            id: deviceId + '-pay',
+            businessUnitId: item[2],
+            configName: 'terminal1',
+            displayName: `Terminal ${deviceId}`,
+            terminalId: item[0],
+            displayOrder: 0,
+          })
+          // Insert pay_assigned_payment_device
+          await tx.insert(payAssignedPaymentDevice).values({
+            deviceId,
+            businessUnitId: item[2],
+            paymentDeviceId: deviceId + '-pay',
+            permanentFlag: 1,
+          })
         }
-      }
-    })
-
+      })
+    }
     console.log(`Successfully updated ${data.length} records`)
   } catch (error) {
     console.error('Error updating database:', error)
